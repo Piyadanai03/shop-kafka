@@ -4,6 +4,11 @@ CREATE TABLE roles (
   created_at TIMESTAMP DEFAULT now()
 );
 
+INSERT INTO roles (id, role_name)
+VALUES 
+  ('550e8400-e29b-41d4-a716-446655440000', 'admin'),
+  ('550e8400-e29b-41d4-a716-446655440001', 'user');
+
 
 CREATE TABLE users (
   id UUID PRIMARY KEY,

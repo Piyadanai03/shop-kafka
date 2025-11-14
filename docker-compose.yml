@@ -1,7 +1,14 @@
 services:
   redpanda:
     image: redpandadata/redpanda:latest
-    command: ["redpanda", "start", "--check=false", "--kafka-addr=PLAINTEXT://0.0.0.0:9092", "--advertise-kafka-addr=PLAINTEXT://localhost:9092"]
+    command:
+      [
+        "redpanda",
+        "start",
+        "--check=false",
+        "--kafka-addr=internal://0.0.0.0:9093,external://0.0.0.0:9092",
+        "--advertise-kafka-addr=internal://redpanda:9093,external://localhost:9092",
+      ]
     ports:
       - "9092:9092"
       - "9644:9644"
@@ -9,10 +16,21 @@ services:
   console:
     image: redpandadata/console:latest
     environment:
-      - KAFKA_BROKERS=redpanda:9092
+      - KAFKA_BROKERS=redpanda:9093
     ports:
       - "8080:8080"
     depends_on: [redpanda]
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.4.0
+    environment:
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://redpanda:9093
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redpanda
 
   db:
     image: postgres:15
