@@ -1,3 +1,4 @@
+import { sequelize } from "../config/db.js";
 import User from "./user.model.js";
 import Role from "./role.model.js";
 
@@ -5,4 +6,4 @@ import Role from "./role.model.js";
 User.belongsTo(Role, { foreignKey: "role_id" });
 Role.hasMany(User, { foreignKey: "role_id" });
 
-export { User, Role };
+export { sequelize, User, Role };
