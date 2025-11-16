@@ -1,0 +1,11 @@
+{
+  "type": "record",
+  "name": "ProductStockUpdated",
+  "namespace": "eventshop.products",
+  "fields": [
+    { "name": "sku", "type": "string" },
+    { "name": "old_stock", "type": "int" },
+    { "name": "new_stock", "type": "int" },
+    { "name": "updated_at", "type": "string" }
+  ]
+}

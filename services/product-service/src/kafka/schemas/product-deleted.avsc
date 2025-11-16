@@ -1,0 +1,10 @@
+{
+  "type": "record",
+  "name": "ProductDeleted",
+  "namespace": "eventshop.products",
+  "fields": [
+    { "name": "id", "type": "string" },
+    { "name": "sku", "type": "string" },
+    { "name": "deleted_at", "type": "string" }
+  ]
+}

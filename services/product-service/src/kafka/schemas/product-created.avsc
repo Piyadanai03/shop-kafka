@@ -1,0 +1,13 @@
+{
+  "type": "record",
+  "name": "ProductCreated",
+  "namespace": "eventshop.products",
+  "fields": [
+    { "name": "id", "type": "string" },
+    { "name": "sku", "type": "string" },
+    { "name": "name", "type": "string" },
+    { "name": "price", "type": "double" },
+    { "name": "stock", "type": "int" },
+    { "name": "created_at", "type": "string" }
+  ]
+}
