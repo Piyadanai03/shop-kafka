@@ -10,10 +10,12 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "@apollo/server": "^5.1.0",
+    "@apollo/server": "^4.12.2",
     "@kafkajs/confluent-schema-registry": "^3.9.0",
+    "body-parser": "^2.2.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
+    "express": "^4.18.2",
     "graphql": "^16.12.0",
     "graphql-tag": "^2.12.6",
     "jsonwebtoken": "^9.0.2",
@@ -22,6 +24,9 @@
     "sequelize": "^6.37.7"
   },
   "devDependencies": {
+    "@types/body-parser": "^1.19.6",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.10.0",
     "nodemon": "^3.1.10",
