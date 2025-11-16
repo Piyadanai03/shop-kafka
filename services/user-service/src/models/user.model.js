@@ -1,5 +1,5 @@
 import { DataTypes } from "sequelize";
-import sequelize from "../config/db.js";
+import {sequelize} from "../config/db.js";
 
 const User = sequelize.define(
   "User",
@@ -53,8 +53,10 @@ const User = sequelize.define(
 
   {
     tableName: "users",
-    timestamps: false,
+    timestamps: true,
     underscored: true,
+    createdAt: "created_at",
+    updatedAt: "updated_at",
   }
 );
 
