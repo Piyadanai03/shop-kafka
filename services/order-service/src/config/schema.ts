@@ -17,7 +17,7 @@ export const productsTable = pgTable('products', {
   id: uuid('id').primaryKey(),
   sku: text('sku').unique().notNull(),
   name: text('name').notNull(),
-  price: numeric('price', { precision: 10, scale: 2 }).notNull(), // Drizzle ใช้ '10, 2' ไม่ได้
+  price: numeric('price', { precision: 10, scale: 2 }).notNull(),
   stock: integer('stock').default(0),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
@@ -50,7 +50,7 @@ export const orderItemsTable = pgTable('order_items', {
   orderId: uuid('order_id').notNull().references(() => ordersTable.id, { onDelete: 'cascade' }),
   sku: text('sku').notNull().references(() => productsTable.sku), // อ้างอิง SKU
   qty: integer('qty').notNull(),
-  price: numeric('price', { precision: 10, scale: 2 }).notNull(), // ราคา "ณ ตอนที่ซื้อ"
+  price: numeric('price', { precision: 10, scale: 2 }).notNull(),
   createdAt: timestamp('created_at').defaultNow(),
 });
 

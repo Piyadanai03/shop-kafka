@@ -1,7 +1,7 @@
 import { Kafka, EachMessagePayload } from 'kafkajs';
 import { SchemaRegistry, SchemaType } from '@kafkajs/confluent-schema-registry';
-import { sequelize } from '../config/db';
-import Product from '../models/product.models';
+import { sequelize } from '../config/db.js';
+import Product from '../models/product.models.js';
 import { Op } from 'sequelize';
 
 //ตั้งค่า Kafka และ Schema Registry

@@ -1,12 +1,12 @@
 import { ApolloServer } from "@apollo/server";
 import { startStandaloneServer } from "@apollo/server/standalone";
 import dotenv from "dotenv";
-import { sequelize } from "./config/db";
-import { connectProducerAndRegisterSchemas } from "./kafka/producer";
-import { typeDefs } from "./graphql/schema";
-import { resolvers } from "./graphql/resolvers";
-import { getUserFromToken, UserPayload } from "./middlewares/auth"; 
-import { connectAndStartConsumer } from "./kafka/consumer";
+import { sequelize } from "./config/db.js";
+import { connectProducerAndRegisterSchemas } from "./kafka/producer.js";
+import { typeDefs } from "./graphql/schema.js";
+import { resolvers } from "./graphql/resolvers.js";
+import { getUserFromToken, UserPayload } from "./middlewares/auth.js"; 
+import { connectAndStartConsumer } from "./kafka/consumer.js";
 
 dotenv.config();
 

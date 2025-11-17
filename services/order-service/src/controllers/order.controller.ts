@@ -1,50 +1,53 @@
 import type { Request, Response } from 'express';
-import { db } from '../config/db';
-import * as schema from '../config/schema';
+import { db } from '../config/db.js';
+import * as schema from '../config/schema.js';
 import { eq, inArray } from 'drizzle-orm';
-import { produceOrderCreated } from '../kafka/producer';
+import { produceOrderCreated } from '../kafka/producer.js';
 
-const { cartItemsTable, productsTable, ordersTable, orderItemsTable, orderStatusesTable } = schema;
+// ⭐️ (ลบออก) cartItemsTable
+const { productsTable, ordersTable, orderItemsTable, orderStatusesTable } = schema;
+
+// ⭐️ (เพิ่ม) Interface สำหรับ Body ที่ส่งเข้ามา
+interface CartItemInput {
+  sku: string;
+  qty: number;
+}
 
 /**
- * 1. สร้าง Order จากตะกร้าสินค้า
+ * 1. สร้าง Order (แก้ไขใหม่)
  */
-export const createOrderFromCart = async (req: Request, res: Response) => {
-  const userId = req.user!.id; // มาจาก authMiddleware
+export const createOrder = async (req: Request, res: Response) => {
+  const userId = req.user!.id;
+  // ⭐️ (แก้ไข) อ่าน Input จาก req.body
+  const items = req.body.items as CartItemInput[];
+
+  if (!items || items.length === 0) {
+    return res.status(400).json({ error: 'Cart items are required' });
+  }
 
   try {
-    // ใช้ Drizzle Transaction
     const newOrder = await db.transaction(async (tx) => {
-      //ดึงสินค้าทั้งหมดในตะกร้า
-      const cart = await tx.select().from(cartItemsTable).where(eq(cartItemsTable.userId, userId));
+      // 1. (แก้ไข) ดึง SKUs และ Qty จาก req.body
+      const skus = items.map(item => item.sku);
+      const cartMap = new Map(items.map(item => [item.sku, item.qty]));
 
-      if (cart.length === 0) {
-        throw new Error('Cart is empty');
-      }
-
-      // ดึง SKUs และ Qty
-      const skus = cart.map(item => item.sku);
-      const cartMap = new Map(cart.map(item => [item.sku, item.qty]));
-
-      // ล็อกแถว (Lock Rows)
+      // 2. ⭐️ ล็อกแถว (เหมือนเดิม)
       const products = await tx
         .select()
         .from(productsTable)
         .where(inArray(productsTable.sku, skus))
-        .for('update');
+        .for('update'); 
 
-      //ตรวจสอบสต็อกและคำนวณราคารวม
-      let total = 0; //(นี่คือ total แบบทศนิยม)
-      const orderItemsPayload: any[] = []; //สำหรับ Kafka
-      const orderItemsData: any[] = [];    //สำหรับ DB
+      // 3. ⭐️ ตรวจสอบสต็อกและคำนวณราคารวม (เหมือนเดิม)
+      let total = 0;
+      const orderItemsPayload: any[] = [];
+      const orderItemsData: any[] = [];
 
       for (const product of products) {
         const qtyInCart = cartMap.get(product.sku!);
-
         if (!qtyInCart) {
-          throw new Error(`Product SKU ${product.sku} not in cart?`);
+          throw new Error(`Product SKU ${product.sku} not in body?`);
         }
-
         if (product.stock! < qtyInCart) {
           throw new Error(`Insufficient stock for ${product.name} (SKU: ${product.sku})`);
         }
@@ -52,21 +55,20 @@ export const createOrderFromCart = async (req: Request, res: Response) => {
         const price = parseFloat(product.price!);
         total += price * qtyInCart;
 
-        //เก็บข้อมูลสำหรับ Kafka เป็น "สตางค์"
+        // (แก้ไข) แปลงเป็น "สตางค์" สำหรับ Kafka
         orderItemsPayload.push({
             sku: product.sku!,
             qty: qtyInCart,
-            price: Math.round(price * 100),
+            price: Math.round(price * 100), // (สตางค์)
         });
-        // (เก็บข้อมูลสำหรับ DB เหมือนเดิม)
         orderItemsData.push({
             sku: product.sku!,
             qty: qtyInCart,
-            price: product.price!,
+            price: product.price!, // (ทศนิยม)
         });
       }
 
-      //ค้นหาสถานะ 'pending'
+      // 4. ⭐️ ค้นหาสถานะ 'pending' (เหมือนเดิม)
       const pendingStatus = await tx.select({ id: orderStatusesTable.id, name: orderStatusesTable.statusName })
         .from(orderStatusesTable)
         .where(eq(orderStatusesTable.statusName, 'pending'))
@@ -75,11 +77,11 @@ export const createOrderFromCart = async (req: Request, res: Response) => {
       if (pendingStatus.length === 0) {
         throw new Error("'pending' order status not found");
       }
-
       const statusId = pendingStatus[0]!.id;
       const statusName = pendingStatus[0]!.name;
 
-      //สร้าง Order (ในตาราง 'orders')
+      // 5. ⭐️ สร้าง Order (เหมือนเดิม)
+      // (ถ้าคุณใช้วิธีแก้ DB (ALTER TABLE) โค้ดนี้ใช้ได้เลย)
       const createdOrder = await tx.insert(ordersTable).values({
         userId: userId,
         total: total.toFixed(2),
@@ -89,24 +91,20 @@ export const createOrderFromCart = async (req: Request, res: Response) => {
         createdAt: ordersTable.createdAt,
       });
       
-      if (createdOrder.length === 0) {
-        throw new Error("Failed to create order");
-      }
-
       const newOrderId = createdOrder[0]!.id;
       const newOrderCreatedAt = createdOrder[0]!.createdAt;
 
-      //สร้าง Order Items (ในตาราง 'order_items')
+      // 6. ⭐️ สร้าง Order Items (เหมือนเดิม)
       const itemsToInsert = orderItemsData.map(item => ({
         ...item,
         orderId: newOrderId,
       }));
       await tx.insert(orderItemsTable).values(itemsToInsert);
 
-      //ลบสินค้าออกจากตะกร้า
-      await tx.delete(cartItemsTable).where(eq(cartItemsTable.userId, userId));
+      // 7. ⭐️ (ลบออก) - ไม่ต้องลบ cart_items ที่นี่
+      // await tx.delete(cartItemsTable).where(eq(cartItemsTable.userId, userId));
 
-      //ส่ง Event ไป Kafka
+      // 8. ⭐️ ส่ง Event ไป Kafka (เหมือนเดิม)
       await produceOrderCreated({
         orderId: newOrderId,
         userId: userId,
@@ -116,17 +114,15 @@ export const createOrderFromCart = async (req: Request, res: Response) => {
         items: orderItemsPayload,
       });
 
-      //คืนค่า Order ที่สร้างเสร็จ
+      // 9. คืนค่า
       return { ...createdOrder[0]!, total, items: orderItemsData };
     });
 
-    //Transaction สำเร็จ
     return res.status(201).json(newOrder);
 
   } catch (err: any) {
-    //Transaction ล้มเหลว (Rollbacked)
     console.error("Order creation failed:", err);
-    if (err.message.includes('Insufficient stock') || err.message.includes('Cart is empty')) {
+    if (err.message.includes('Insufficient stock') || err.message.includes('Cart items are required')) {
         return res.status(400).json({ error: err.message });
     }
     return res.status(500).json({ error: "Failed to create order" });
@@ -146,7 +142,7 @@ export const getOrderHistory = async (req: Request, res: Response) => {
         items: true,
         status: true,
       },
-      orderBy: (orders, { desc }) => [desc(orders.createdAt)],
+      orderBy: (orders: { createdAt: any; } , { desc }: any) => [desc(orders.createdAt)],
     });
 
     return res.json(orders);
