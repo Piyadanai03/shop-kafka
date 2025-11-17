@@ -1,13 +1,12 @@
-import express from "express";
-import cors from "cors";
 import { ApolloServer } from "@apollo/server";
-import { expressMiddleware } from "@apollo/server/express4";
+import { startStandaloneServer } from "@apollo/server/standalone";
 import dotenv from "dotenv";
 import { sequelize } from "./config/db";
 import { connectProducerAndRegisterSchemas } from "./kafka/producer";
 import { typeDefs } from "./graphql/schema";
 import { resolvers } from "./graphql/resolvers";
-import { getUserFromToken, UserPayload } from "./middlewares/auth";
+import { getUserFromToken, UserPayload } from "./middlewares/auth"; 
+import { connectAndStartConsumer } from "./kafka/consumer";
 
 dotenv.config();
 
@@ -17,57 +16,38 @@ export interface MyContext {
 
 async function startServer() {
   try {
+    // เชื่อมต่อ DB
     await sequelize.authenticate();
-    console.log("✅ Database connected successfully.");
-  } catch (error) {
-    console.error("❌ Database connection failed:", error);
-    process.exit(1);
-  }
-
-  try {
+    console.log("Connection to the database has been established successfully.");
+    
+    //เชื่อมต่อ Kafka Producer
     await connectProducerAndRegisterSchemas();
-    console.log("✅ Kafka producer connected & schemas registered.");
+    console.log("Kafka Producer connected and schemas registered.");
+
+    //เชื่อมต่อ Kafka Consumer
+    await connectAndStartConsumer();
+
+    //สร้าง Apollo Server
+    const server = new ApolloServer<MyContext>({
+      typeDefs,
+      resolvers,
+    });
+
+    //เริ่ม Apollo Server
+    const { url } = await startStandaloneServer(server, {
+      listen: { port: process.env.PORT_PRODUCT_SERVICE ? parseInt(process.env.PORT_PRODUCT_SERVICE) : 5002 },
+      context: async ({ req }) => {
+        const token = req.headers.authorization || '';
+        const user = getUserFromToken(token);
+        return { user: user };
+      },
+    });
+    console.log(`🚀  Server ready at ${url}`);
+
   } catch (error) {
-    console.error("❌ Kafka setup failed:", error);
+    console.error("Unable to start server:", error);
     process.exit(1);
   }
-
-  const server = new ApolloServer<MyContext>({
-    typeDefs,
-    resolvers,
-  });
-
-  await server.start();
-
-  const app = express();
-
-  app.use(
-    cors({
-      origin: "*",
-      credentials: false,
-    })
-  );
-
-  app.use(express.json());
-
-  app.use(
-    "/graphql",
-    expressMiddleware(server, {
-      context: async ({ req }) => {
-        const token = req.headers.authorization || "";
-        const user = getUserFromToken(token);
-        return { user };
-      },
-    }) as unknown as express.RequestHandler
-  );
-
-  const port = process.env.PORT_PRODUCT_SERVICE
-    ? parseInt(process.env.PORT_PRODUCT_SERVICE)
-    : 5002;
-
-  app.listen(port, () => {
-    console.log(`🚀 Server ready at http://localhost:${port}/graphql`);
-  });
 }
 
 startServer();

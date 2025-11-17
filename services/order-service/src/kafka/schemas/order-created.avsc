@@ -5,9 +5,13 @@
   "fields": [
     { "name": "orderId", "type": "string" },
     { "name": "userId", "type": "string" },
-    { "name": "total", "type": "double" },
+    { "name": "total", "type": "long" },
     { "name": "statusName", "type": "string" },
-    { "name": "createdAt", "type": "string" },
+    {
+      "name": "createdAt",
+      "type": "long",
+      "logicalType": "timestamp-millis"
+    },
     {
       "name": "items",
       "type": {
@@ -18,7 +22,7 @@
           "fields": [
             { "name": "sku", "type": "string" },
             { "name": "qty", "type": "int" },
-            { "name": "price", "type": "double" }
+            { "name": "price", "type": "long" }
           ]
         }
       }
