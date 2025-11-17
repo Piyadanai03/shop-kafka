@@ -1,0 +1,31 @@
+{
+  "type": "record",
+  "name": "OrderCreated",
+  "namespace": "com.shop.orders",
+  "fields": [
+    { "name": "orderId", "type": "string" },
+    { "name": "userId", "type": "string" },
+    { "name": "total", "type": "long" },
+    { "name": "statusName", "type": "string" },
+    {
+      "name": "createdAt",
+      "type": "long",
+      "logicalType": "timestamp-millis"
+    },
+    {
+      "name": "items",
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "OrderItemPayload",
+          "fields": [
+            { "name": "sku", "type": "string" },
+            { "name": "qty", "type": "int" },
+            { "name": "price", "type": "long" }
+          ]
+        }
+      }
+    }
+  ]
+}
