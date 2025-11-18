@@ -1,17 +1,17 @@
-import Product from "../models/product.models";
-import { sequelize } from "../config/db";
+import Product from "../models/product.models.js";
+import { sequelize } from "../config/db.js";
 import {
   produceProductCreated,
   produceProductUpdated,
   produceProducerStockUpdated,
   produceProductDeleted,
-} from "../kafka/producer";
-import { MyContext } from "../index";
+} from "../kafka/producer.js";
+import { MyContext } from "../index.js";
 import { GraphQLError } from "graphql";
 
 const ADMIN_ROLE_ID = "550e8400-e29b-41d4-a716-446655440000";
 
-export const resolvers = {
+export const resolvers: any = {
   // --------------------
   // RESOLVERS FOR QUERIES
   // --------------------
