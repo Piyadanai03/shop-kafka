@@ -1,31 +1,26 @@
-import { pgTable, text, uuid, timestamp, integer, numeric, serial, foreignKey } from 'drizzle-orm/pg-core';
+import { pgTable, text, uuid, timestamp, integer, numeric, serial } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 export const usersTable = pgTable('users', {
   id: uuid('id').primaryKey(),
-  role_id: uuid('role_id').notNull(),
-  username: text('username').unique().notNull(),
-  email: text('email').unique().notNull(),
-  password: text('password').notNull(),
-  fullName: text('full_name'),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at').defaultNow(),
 });
 
-// (Map ไปยังตาราง 'products' ที่ product-service สร้าง)
 export const productsTable = pgTable('products', {
   id: uuid('id').primaryKey(),
   sku: text('sku').unique().notNull(),
   name: text('name').notNull(),
   price: numeric('price', { precision: 10, scale: 2 }).notNull(),
-  stock: integer('stock').default(0),
+});
+
+export const inventoryTable = pgTable('inventory', {
+  sku: text('sku').primaryKey().references(() => productsTable.sku),
+  available: integer('available').notNull(),
+  reserved: integer('reserved').default(0),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
-// == ตารางที่ Order-Service เป็นเจ้าของ ==
 
-// (Map ไปยังตาราง 'order_statuses')
 export const orderStatusesTable = pgTable('order_statuses', {
   id: serial('id').primaryKey(),
   statusName: text('status_name').unique().notNull(),
@@ -34,7 +29,6 @@ export const orderStatusesTable = pgTable('order_statuses', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-// (Map ไปยังตาราง 'orders')
 export const ordersTable = pgTable('orders', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => usersTable.id, { onDelete: 'cascade' }),
@@ -44,30 +38,15 @@ export const ordersTable = pgTable('orders', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
-// (Map ไปยังตาราง 'order_items')
 export const orderItemsTable = pgTable('order_items', {
   id: uuid('id').primaryKey().defaultRandom(),
   orderId: uuid('order_id').notNull().references(() => ordersTable.id, { onDelete: 'cascade' }),
-  sku: text('sku').notNull().references(() => productsTable.sku), // อ้างอิง SKU
+  sku: text('sku').notNull().references(() => productsTable.sku),
   qty: integer('qty').notNull(),
-  price: numeric('price', { precision: 10, scale: 2 }).notNull(),
+  price: numeric('price', { precision: 10, scale: 2 }).notNull(), // ราคาสินค้า ณ วันที่ซื้อ
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-// (Map ไปยังตาราง 'cart_items') - เผื่อ Service นี้ต้องอ่าน
-export const cartItemsTable = pgTable('cart_items', {
-    id: uuid('id').primaryKey().defaultRandom(),
-    userId: uuid('user_id').notNull().references(() => usersTable.id, { onDelete: 'cascade' }),
-    sku: text('sku').notNull().references(() => productsTable.sku, { onDelete: 'cascade' }),
-    qty: integer('qty').notNull(),
-    createdAt: timestamp('created_at').defaultNow(),
-    updatedAt: timestamp('updated_at').defaultNow(),
-});
-
-
-// ------------------------------------
-// (ขั้นสูง) การกำหนด Relations (สำหรับ Drizzle)
-// ------------------------------------
 export const orderRelations = relations(ordersTable, ({ one, many }) => ({
   status: one(orderStatusesTable, {
     fields: [ordersTable.statusId],
@@ -85,26 +64,8 @@ export const orderItemRelations = relations(orderItemsTable, ({ one }) => ({
     fields: [orderItemsTable.orderId],
     references: [ordersTable.id],
   }),
-  // (เผื่อ) ถ้าอยากดึงข้อมูล Product พร้อมกัน
   product: one(productsTable, {
     fields: [orderItemsTable.sku],
-    references: [productsTable.sku],
-  })
-}));
-
-// (เผื่อ) ถ้าอยากดึง Cart
-export const userRelations = relations(usersTable, ({ many }) => ({
-  carts: many(cartItemsTable),
-  orders: many(ordersTable),
-}));
-
-export const cartRelations = relations(cartItemsTable, ({ one }) => ({
-  user: one(usersTable, {
-    fields: [cartItemsTable.userId],
-    references: [usersTable.id],
-  }),
-  product: one(productsTable, {
-    fields: [cartItemsTable.sku],
     references: [productsTable.sku],
   }),
 }));

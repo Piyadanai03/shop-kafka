@@ -1,35 +1,57 @@
-import Product from "../models/product.models.js";
-import { sequelize } from "../config/db.js";
+import { Product, Inventory, sequelize } from "../models/index.js";
 import {
   produceProductCreated,
   produceProductUpdated,
-  produceProducerStockUpdated,
   produceProductDeleted,
+  produceProducerStockUpdated,
 } from "../kafka/producer.js";
 import { MyContext } from "../index.js";
 import { GraphQLError } from "graphql";
 
+
 const ADMIN_ROLE_ID = "550e8400-e29b-41d4-a716-446655440000";
 
-export const resolvers: any = {
+export const resolvers = {
   // --------------------
   // RESOLVERS FOR QUERIES
   // --------------------
   Query: {
-    // (Query ไม่ต้องเช็คก็ได้ ให้ดูข้อมูลได้)
-    product: async (_: any, { id }: { id: any }) => {
+    // ดึงสินค้าชิ้นเดียว
+    product: async (_: any, { id }: { id: string }) => {
       try {
-        const product = await Product.findByPk(id);
-        return product ? product.toJSON() : null;
+        const product = await Product.findByPk(id, {
+          include: [{ model: Inventory }], // Join กับ Inventory
+        });
+
+        if (!product) return null;
+
+        const p = product.toJSON() as any;
+        return {
+          ...p,
+          // อ่านสต็อกใหม่จาก Inventory.available
+          stock: product.dataValues.Inventory ? product.dataValues.Inventory.available : 0,
+        };
       } catch (err) {
         console.error("Error fetching product:", err);
         throw new Error("Failed to fetch product");
       }
     },
+
+    // ดึงสินค้าทั้งหมด
     products: async () => {
       try {
-        const products = await Product.findAll();
-        return products.map((p) => p.toJSON());
+        const products = await Product.findAll({
+          include: [{ model: Inventory }], // Join กับ Inventory
+        });
+
+        return products.map((product: any) => {
+          const p = product.toJSON();
+          return {
+            ...p,
+            // อ่านสต็อกใหม่จาก Inventory.available
+            stock: product.Inventory ? product.Inventory.available : 0,
+          };
+        });
       } catch (err) {
         console.error("Error fetching products:", err);
         throw new Error("Failed to fetch products");
@@ -42,48 +64,58 @@ export const resolvers: any = {
   // --------------------
   Mutation: {
     /**
-     * สร้าง Product ใหม่
+     * สร้าง Product ใหม่ (Admin Only)
+     * ต้อง Insert ลงทั้งตาราง Products และ Inventory
      */
     createProduct: async (
       _: any,
       { input }: { input: any },
       context: MyContext
     ) => {
-      if (
-        !context.user || // ไม่มี token
-        context.user.role_id !== ADMIN_ROLE_ID // ไม่ใช่ admin
-      ) {
-        // โยน Error แบบ GraphQL
-        throw new GraphQLError(
-          "You are not authorized to perform this action",
-          {
-            extensions: { code: "UNAUTHORIZED" },
-          }
-        );
+      // 1. Check Auth
+      if (!context.user || context.user.role_id !== ADMIN_ROLE_ID) {
+        throw new GraphQLError("You are not authorized to perform this action", {
+          extensions: { code: "UNAUTHORIZED" },
+        });
       }
 
-      // (ถ้าผ่าน) ทำงาน logic เดิม
       const t = await sequelize.transaction();
       try {
-        const createInput = {
-          ...input,
-          price: String(input.price),
-        };
-        const product = await Product.create(createInput, { transaction: t });
+        const { stock, ...productInput } = input;
+        
+        // สร้าง Product
+        const product = await Product.create(productInput, { transaction: t });
 
-        const productData = product.toJSON();
+        // สร้าง Inventory
+        await Inventory.create(
+          {
+            sku: product.sku,
+            available: stock || 0,
+            reserved: 0,
+          },
+          { transaction: t }
+        );
+
+        //เตรียมข้อมูลสำหรับ Kafka (แปลงเป็น Format ที่ถูกต้อง)
+        const productData = product.toJSON() as any;
         const kafkaPayload = {
           id: productData.id,
           sku: productData.sku,
           name: productData.name,
-          price: parseFloat(productData.price),
-          stock: productData.stock,
+          price: parseFloat(productData.price), // แปลงเป็น number
+          stock: stock || 0,
           created_at: productData.created_at?.toISOString(),
         };
 
         await produceProductCreated(kafkaPayload);
+
         await t.commit();
-        return product.toJSON();
+
+        //คืนค่ากลับไป (รวมร่าง Product + Stock)
+        return {
+          ...productData,
+          stock: stock || 0,
+        };
       } catch (err) {
         await t.rollback();
         console.error("Error creating product:", err);
@@ -93,48 +125,51 @@ export const resolvers: any = {
 
     /**
      * อัปเดตข้อมูล Product (ชื่อ, ราคา)
+     * 
      */
     updateProduct: async (
       _: any,
-      { id, input }: { id: any; input: any },
+      { id, input }: { id: string; input: any },
       context: MyContext
     ) => {
       if (!context.user || context.user.role_id !== ADMIN_ROLE_ID) {
-        throw new GraphQLError(
-          "You are not authorized to perform this action",
-          {
-            extensions: { code: "UNAUTHORIZED" },
-          }
-        );
+        throw new GraphQLError("Unauthorized", { extensions: { code: "UNAUTHORIZED" } });
       }
 
-      // (ถ้าผ่าน) ทำงาน logic เดิม
       const t = await sequelize.transaction();
       try {
-        const product = await Product.findByPk(id, { transaction: t });
+        const product = await Product.findByPk(id, { 
+            transaction: t,
+            include: [{ model: Inventory }] 
+        });
+        
         if (!product) {
           throw new Error("Product not found");
         }
 
-        const updateData: any = { ...input };
-        if (input.price !== null && input.price !== undefined) {
-          updateData.price = String(input.price);
-        }
-        product.set(updateData);
-        await product.save({ transaction: t });
+        // อัปเดตแค่ Product (ชื่อ, ราคา)
+        await product.update(input, { transaction: t });
 
-        const productData = product.toJSON();
+        // เตรียมข้อมูลส่ง Kafka
+        const productData = product.toJSON() as any;
+        const currentStock = product.dataValues.Inventory?.available || 0;
+
         const kafkaPayload = {
           id: productData.id,
           sku: productData.sku,
           name: productData.name,
-          price: productData.price ? parseFloat(productData.price) : null,
-          updated_at: productData.updated_at?.toISOString(),
+          price: parseFloat(productData.price),
+          updated_at: new Date().toISOString(),
         };
+        
         await produceProductUpdated(kafkaPayload);
 
         await t.commit();
-        return product.toJSON();
+
+        return {
+            ...productData,
+            stock: currentStock
+        };
       } catch (err) {
         await t.rollback();
         console.error("Error updating product:", err);
@@ -143,85 +178,35 @@ export const resolvers: any = {
     },
 
     /**
-     * อัปเดตสต็อกสินค้า
+     * ลบสินค้า (Admin Only)
+     * 
      */
-    updateStock: async (
+    deleteProduct: async (
       _: any,
-      { sku, quantity }: { sku: any; quantity: number },
+      { id }: { id: string },
       context: MyContext
     ) => {
       if (!context.user || context.user.role_id !== ADMIN_ROLE_ID) {
-        throw new GraphQLError(
-          "You are not authorized to perform this action",
-          {
-            extensions: { code: "UNAUTHORIZED" },
-          }
-        );
+        throw new GraphQLError("Unauthorized", { extensions: { code: "UNAUTHORIZED" } });
       }
 
-      // (ถ้าผ่าน) ทำงาน logic เดิม
-      const t = await sequelize.transaction();
-      try {
-        const product = await Product.findOne({
-          where: { sku },
-          transaction: t,
-        });
-        if (!product) {
-          throw new Error("Product not found");
-        }
-
-        const productDataBeforeUpdate = product.toJSON();
-        const oldStock = productDataBeforeUpdate.stock;
-
-        const newStock = oldStock + quantity;
-        if (newStock < 0) {
-          throw new Error("Insufficient stock");
-        }
-
-        product.set("stock", newStock);
-        await product.save({ transaction: t });
-
-        const productDataAfterUpdate = product.toJSON();
-
-        await produceProducerStockUpdated({
-          sku: productDataAfterUpdate.sku,
-          old_stock: oldStock,
-          new_stock: productDataAfterUpdate.stock,
-          updated_at: productDataAfterUpdate.updated_at?.toISOString(),
-        });
-
-        await t.commit();
-        return productDataAfterUpdate;
-      } catch (err) {
-        await t.rollback();
-        console.error("Error updating stock:", err);
-        throw new Error("Failed to update stock");
-      }
-    },
-
-    deleteProduct: async (_: any, { id }: { id: any }, context: MyContext) => {
-      if (!context.user || context.user.role_id !== ADMIN_ROLE_ID) {
-        throw new GraphQLError(
-          "You are not authorized to perform this action",
-          {
-            extensions: { code: "UNAUTHORIZED" },
-          }
-        );
-      }
       const t = await sequelize.transaction();
       try {
         const product = await Product.findByPk(id, { transaction: t });
         if (!product) {
-          throw new Error("Product not found");
+           await t.rollback();
+           throw new Error("Product not found");
         }
-        const productData = product.toJSON();
+
+        const productData = product.toJSON() as any;
         await product.destroy({ transaction: t });
+
         await produceProductDeleted({
           id: productData.id,
           sku: productData.sku,
-          name: productData.name,
           deleted_at: new Date().toISOString(),
         });
+
         await t.commit();
         return true;
       } catch (err) {
@@ -230,5 +215,67 @@ export const resolvers: any = {
         throw new Error("Failed to delete product");
       }
     },
+
+    /**
+     * 
+     * อัปเดตที่ตาราง Inventory
+     */
+    updateStock: async (
+        _: any,
+        { sku, qty }: { sku: string; qty: number },
+        context: MyContext
+    ) => {
+        if (!context.user || context.user.role_id !== ADMIN_ROLE_ID) {
+            throw new GraphQLError("Unauthorized", { extensions: { code: "UNAUTHORIZED" } });
+        }
+
+        const t = await sequelize.transaction();
+        try {
+            // 1. หา Inventory
+            const inventory = await Inventory.findOne({ 
+                where: { sku }, 
+                transaction: t 
+            });
+
+            if (!inventory) {
+                throw new Error("Product inventory not found");
+            }
+
+            const oldStock = inventory.available;
+            
+            // 2. บวกสต็อกเพิ่ม (หรือลด ถ้า qty เป็นลบ)
+            inventory.available += qty;
+            
+            // ป้องกันสต็อกติดลบ (Optional)
+            if (inventory.available < 0) {
+                throw new Error("Stock cannot be negative");
+            }
+
+            await inventory.save({ transaction: t });
+
+            // 3. หา Product เพื่อส่งข้อมูลกลับ
+            const product = await Product.findOne({ where: { sku }, transaction: t });
+
+            // 4. ส่ง Event แจ้งว่าสต็อกเปลี่ยน (ถ้ามี Consumer รอฟัง)
+            await produceProducerStockUpdated({
+                sku: sku,
+                old_stock: oldStock,
+                new_stock: inventory.available,
+                updated_at: new Date().toISOString()
+            });
+
+            await t.commit();
+
+            return {
+                ...product?.toJSON(),
+                stock: inventory.available
+            };
+
+        } catch (err: any) {
+            await t.rollback();
+            console.error("Error updating stock:", err);
+            throw new Error(err.message || "Failed to update stock");
+        }
+    }
   },
 };
