@@ -2,7 +2,9 @@ import { DataTypes, Model } from "sequelize";
 import { sequelize } from "../config/db.js";
 
 class Inventory extends Model {
-  available: any;
+  declare sku: string;
+  declare available: number;
+  declare reserved: number;
 }
 
 Inventory.init(

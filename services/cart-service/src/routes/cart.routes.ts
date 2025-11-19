@@ -9,6 +9,6 @@ cartRouter.use(authMiddleware);
 cartRouter.get('/', getCart);
 cartRouter.post('/items', addItemToCart);
 cartRouter.delete('/items/:itemId', removeItemFromCart);
-cartRouter.put('/items/:itemId', updateItemQty);
+cartRouter.patch('/items/:itemId', updateItemQty);
 
 export default cartRouter;

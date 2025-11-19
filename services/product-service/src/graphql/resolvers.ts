@@ -8,7 +8,7 @@ import {
 import { MyContext } from "../index.js";
 import { GraphQLError } from "graphql";
 
-
+// ID ของ Admin Role
 const ADMIN_ROLE_ID = "550e8400-e29b-41d4-a716-446655440000";
 
 export const resolvers = {
@@ -20,16 +20,22 @@ export const resolvers = {
     product: async (_: any, { id }: { id: string }) => {
       try {
         const product = await Product.findByPk(id, {
-          include: [{ model: Inventory }], // Join กับ Inventory
+          include: [{ model: Inventory, required: false }],
         });
 
         if (!product) return null;
 
         const p = product.toJSON() as any;
+        
+        // Logic ป้องกัน Null (Safe Access)
+        let stockVal = 0;
+        if (p.Inventory && p.Inventory.available !== undefined && p.Inventory.available !== null) {
+            stockVal = p.Inventory.available;
+        }
+
         return {
           ...p,
-          // อ่านสต็อกใหม่จาก Inventory.available
-          stock: product.dataValues.Inventory ? product.dataValues.Inventory.available : 0,
+          stock: stockVal,
         };
       } catch (err) {
         console.error("Error fetching product:", err);
@@ -41,15 +47,22 @@ export const resolvers = {
     products: async () => {
       try {
         const products = await Product.findAll({
-          include: [{ model: Inventory }], // Join กับ Inventory
+          include: [{ model: Inventory, required: false }], 
         });
 
         return products.map((product: any) => {
           const p = product.toJSON();
+          
+          // Logic ป้องกัน Null (Safe Access)
+          let stockVal = 0;
+          // ตรวจสอบว่ามี object Inventory และมีค่า available หรือไม่
+          if (p.Inventory && p.Inventory.available !== undefined && p.Inventory.available !== null) {
+             stockVal = p.Inventory.available;
+          }
+
           return {
             ...p,
-            // อ่านสต็อกใหม่จาก Inventory.available
-            stock: product.Inventory ? product.Inventory.available : 0,
+            stock: stockVal, // รับประกันว่าเป็น Int แน่นอน ไม่ใช่ Null
           };
         });
       } catch (err) {
@@ -65,14 +78,13 @@ export const resolvers = {
   Mutation: {
     /**
      * สร้าง Product ใหม่ (Admin Only)
-     * ต้อง Insert ลงทั้งตาราง Products และ Inventory
      */
     createProduct: async (
       _: any,
       { input }: { input: any },
       context: MyContext
     ) => {
-      // 1. Check Auth
+      // Check Auth
       if (!context.user || context.user.role_id !== ADMIN_ROLE_ID) {
         throw new GraphQLError("You are not authorized to perform this action", {
           extensions: { code: "UNAUTHORIZED" },
@@ -81,6 +93,7 @@ export const resolvers = {
 
       const t = await sequelize.transaction();
       try {
+        // แยกข้อมูล: Product ไม่เอา stock, Inventory เอาแค่ stock
         const { stock, ...productInput } = input;
         
         // สร้าง Product
@@ -96,13 +109,13 @@ export const resolvers = {
           { transaction: t }
         );
 
-        //เตรียมข้อมูลสำหรับ Kafka (แปลงเป็น Format ที่ถูกต้อง)
+        // เตรียมข้อมูลสำหรับ Kafka
         const productData = product.toJSON() as any;
         const kafkaPayload = {
           id: productData.id,
           sku: productData.sku,
           name: productData.name,
-          price: parseFloat(productData.price), // แปลงเป็น number
+          price: parseFloat(productData.price),
           stock: stock || 0,
           created_at: productData.created_at?.toISOString(),
         };
@@ -111,7 +124,7 @@ export const resolvers = {
 
         await t.commit();
 
-        //คืนค่ากลับไป (รวมร่าง Product + Stock)
+        // คืนค่ากลับไป
         return {
           ...productData,
           stock: stock || 0,
@@ -125,7 +138,6 @@ export const resolvers = {
 
     /**
      * อัปเดตข้อมูล Product (ชื่อ, ราคา)
-     * 
      */
     updateProduct: async (
       _: any,
@@ -147,13 +159,14 @@ export const resolvers = {
           throw new Error("Product not found");
         }
 
-        // อัปเดตแค่ Product (ชื่อ, ราคา)
+        // อัปเดตแค่ Product
         await product.update(input, { transaction: t });
 
-        // เตรียมข้อมูลส่ง Kafka
         const productData = product.toJSON() as any;
-        const currentStock = product.dataValues.Inventory?.available || 0;
+        // อ่าน Stock ปัจจุบันเพื่อส่งกลับ (ถ้าไม่มีให้เป็น 0)
+        const currentStock = (productData.Inventory && productData.Inventory.available) || 0;
 
+        // Kafka
         const kafkaPayload = {
           id: productData.id,
           sku: productData.sku,
@@ -161,7 +174,6 @@ export const resolvers = {
           price: parseFloat(productData.price),
           updated_at: new Date().toISOString(),
         };
-        
         await produceProductUpdated(kafkaPayload);
 
         await t.commit();
@@ -178,8 +190,7 @@ export const resolvers = {
     },
 
     /**
-     * ลบสินค้า (Admin Only)
-     * 
+     * ลบสินค้า
      */
     deleteProduct: async (
       _: any,
@@ -194,11 +205,12 @@ export const resolvers = {
       try {
         const product = await Product.findByPk(id, { transaction: t });
         if (!product) {
-           await t.rollback();
+           await t.rollback(); // ไม่จำเป็นต้อง rollback ถ้าไม่ได้ทำอะไร แต่ใส่ไว้กันเหนียว
            throw new Error("Product not found");
         }
 
         const productData = product.toJSON() as any;
+
         await product.destroy({ transaction: t });
 
         await produceProductDeleted({
@@ -217,12 +229,11 @@ export const resolvers = {
     },
 
     /**
-     * 
-     * อัปเดตที่ตาราง Inventory
+     * เติมสต็อก (Update Stock) - อัปเดตที่ Inventory โดยตรง
      */
     updateStock: async (
         _: any,
-        { sku, qty }: { sku: string; qty: number },
+        { sku, quantity }: { sku: string; quantity: number },
         context: MyContext
     ) => {
         if (!context.user || context.user.role_id !== ADMIN_ROLE_ID) {
@@ -231,7 +242,6 @@ export const resolvers = {
 
         const t = await sequelize.transaction();
         try {
-            // 1. หา Inventory
             const inventory = await Inventory.findOne({ 
                 where: { sku }, 
                 transaction: t 
@@ -243,20 +253,19 @@ export const resolvers = {
 
             const oldStock = inventory.available;
             
-            // 2. บวกสต็อกเพิ่ม (หรือลด ถ้า qty เป็นลบ)
-            inventory.available += qty;
+            // บวกสต็อกเพิ่ม
+            inventory.available += quantity;
             
-            // ป้องกันสต็อกติดลบ (Optional)
             if (inventory.available < 0) {
                 throw new Error("Stock cannot be negative");
             }
 
             await inventory.save({ transaction: t });
 
-            // 3. หา Product เพื่อส่งข้อมูลกลับ
+            // หา Product เพื่อส่งข้อมูลกลับ
             const product = await Product.findOne({ where: { sku }, transaction: t });
 
-            // 4. ส่ง Event แจ้งว่าสต็อกเปลี่ยน (ถ้ามี Consumer รอฟัง)
+            // Kafka Event
             await produceProducerStockUpdated({
                 sku: sku,
                 old_stock: oldStock,
