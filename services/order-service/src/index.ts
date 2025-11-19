@@ -3,11 +3,11 @@ import cors from "cors";
 import dotenv from "dotenv";
 import orderRouter from "./routes/order.routes.js";
 import { connectProducerAndRegisterSchemas } from "./kafka/producer.js";
+import { connectAndStartConsumer } from "./kafka/consumer.js";
 
 dotenv.config();
 
 const app = express();
-
 const PORT = process.env.PORT_ORDER_SERVICE || 5003;
 
 app.use(cors());
@@ -17,11 +17,13 @@ app.use("/", orderRouter);
 
 async function startServer() {
   try {
-    //เชื่อมต่อ Kafka Producer
+    // Producer (ผู้ส่ง)
     await connectProducerAndRegisterSchemas();
-    console.log("Kafka Producer connected and schemas registered.");
+    console.log("Kafka Producer connected.");
 
-    //เริ่ม Server
+    // Consumer (ผู้ฟัง) - เริ่มฟังเสียงจาก Payment Service
+    await connectAndStartConsumer();
+
     app.listen(PORT, () => {
       console.log(`Order Service is running on http://localhost:${PORT}`);
     });
