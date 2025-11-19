@@ -4,21 +4,20 @@ import * as schema from '../config/schema.js';
 import { eq, inArray } from 'drizzle-orm';
 import { produceOrderCreated } from '../kafka/producer.js';
 
-// ⭐️ (ลบออก) cartItemsTable
 const { productsTable, ordersTable, orderItemsTable, orderStatusesTable } = schema;
 
-// ⭐️ (เพิ่ม) Interface สำหรับ Body ที่ส่งเข้ามา
+//Interface สำหรับ Body ที่ส่งเข้ามา
 interface CartItemInput {
   sku: string;
   qty: number;
 }
 
 /**
- * 1. สร้าง Order (แก้ไขใหม่)
+ * 1. สร้าง Order
  */
 export const createOrder = async (req: Request, res: Response) => {
   const userId = req.user!.id;
-  // ⭐️ (แก้ไข) อ่าน Input จาก req.body
+  // อ่าน Input จาก req.body
   const items = req.body.items as CartItemInput[];
 
   if (!items || items.length === 0) {
@@ -27,18 +26,18 @@ export const createOrder = async (req: Request, res: Response) => {
 
   try {
     const newOrder = await db.transaction(async (tx) => {
-      // 1. (แก้ไข) ดึง SKUs และ Qty จาก req.body
+      //ดึง SKUs และ Qty จาก req.body
       const skus = items.map(item => item.sku);
       const cartMap = new Map(items.map(item => [item.sku, item.qty]));
 
-      // 2. ⭐️ ล็อกแถว (เหมือนเดิม)
+      // ล็อกแถว
       const products = await tx
         .select()
         .from(productsTable)
         .where(inArray(productsTable.sku, skus))
         .for('update'); 
 
-      // 3. ⭐️ ตรวจสอบสต็อกและคำนวณราคารวม (เหมือนเดิม)
+      //ตรวจสอบสต็อกและคำนวณราคารวม
       let total = 0;
       const orderItemsPayload: any[] = [];
       const orderItemsData: any[] = [];
@@ -55,7 +54,7 @@ export const createOrder = async (req: Request, res: Response) => {
         const price = parseFloat(product.price!);
         total += price * qtyInCart;
 
-        // (แก้ไข) แปลงเป็น "สตางค์" สำหรับ Kafka
+        //แปลงเป็น "สตางค์" สำหรับ Kafka
         orderItemsPayload.push({
             sku: product.sku!,
             qty: qtyInCart,
@@ -64,11 +63,11 @@ export const createOrder = async (req: Request, res: Response) => {
         orderItemsData.push({
             sku: product.sku!,
             qty: qtyInCart,
-            price: product.price!, // (ทศนิยม)
+            price: product.price!,
         });
       }
 
-      // 4. ⭐️ ค้นหาสถานะ 'pending' (เหมือนเดิม)
+      //ค้นหาสถานะ 'pending'
       const pendingStatus = await tx.select({ id: orderStatusesTable.id, name: orderStatusesTable.statusName })
         .from(orderStatusesTable)
         .where(eq(orderStatusesTable.statusName, 'pending'))
@@ -80,8 +79,7 @@ export const createOrder = async (req: Request, res: Response) => {
       const statusId = pendingStatus[0]!.id;
       const statusName = pendingStatus[0]!.name;
 
-      // 5. ⭐️ สร้าง Order (เหมือนเดิม)
-      // (ถ้าคุณใช้วิธีแก้ DB (ALTER TABLE) โค้ดนี้ใช้ได้เลย)
+      //สร้าง Order
       const createdOrder = await tx.insert(ordersTable).values({
         userId: userId,
         total: total.toFixed(2),
@@ -94,17 +92,14 @@ export const createOrder = async (req: Request, res: Response) => {
       const newOrderId = createdOrder[0]!.id;
       const newOrderCreatedAt = createdOrder[0]!.createdAt;
 
-      // 6. ⭐️ สร้าง Order Items (เหมือนเดิม)
+      //สร้าง Order Items
       const itemsToInsert = orderItemsData.map(item => ({
         ...item,
         orderId: newOrderId,
       }));
       await tx.insert(orderItemsTable).values(itemsToInsert);
 
-      // 7. ⭐️ (ลบออก) - ไม่ต้องลบ cart_items ที่นี่
-      // await tx.delete(cartItemsTable).where(eq(cartItemsTable.userId, userId));
-
-      // 8. ⭐️ ส่ง Event ไป Kafka (เหมือนเดิม)
+      // ส่ง Event ไป Kafka (เหมือนเดิม)
       await produceOrderCreated({
         orderId: newOrderId,
         userId: userId,
@@ -114,7 +109,6 @@ export const createOrder = async (req: Request, res: Response) => {
         items: orderItemsPayload,
       });
 
-      // 9. คืนค่า
       return { ...createdOrder[0]!, total, items: orderItemsData };
     });
 
@@ -130,7 +124,7 @@ export const createOrder = async (req: Request, res: Response) => {
 };
 
 /**
- * 2. ดูประวัติการสั่งซื้อ (ของตัวเอง)
+ * 2. ดูประวัติการสั่งซื้อ
  */
 export const getOrderHistory = async (req: Request, res: Response) => {
   const userId = req.user!.id;
