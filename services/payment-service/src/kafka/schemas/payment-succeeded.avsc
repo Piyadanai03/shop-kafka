@@ -1,0 +1,11 @@
+{
+  "type": "record",
+  "name": "PaymentSucceeded",
+  "namespace": "com.shop.payments",
+  "fields": [
+    { "name": "paymentId", "type": "string" },
+    { "name": "orderId", "type": "string" },
+    { "name": "amount", "type": "long" }, 
+    { "name": "timestamp", "type": "string" }
+  ]
+}

@@ -1,0 +1,114 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model cart_items {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String?   @db.Uuid
+  sku        String?
+  qty        Int
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+  updated_at DateTime? @default(now()) @db.Timestamp(6)
+  products   products? @relation(fields: [sku], references: [sku], onDelete: Cascade, onUpdate: NoAction)
+  users      users?    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model inventory {
+  sku        String    @id
+  available  Int
+  reserved   Int?      @default(0)
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+  updated_at DateTime? @default(now()) @db.Timestamp(6)
+  products   products  @relation(fields: [sku], references: [sku], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model order_items {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  order_id   String?   @db.Uuid
+  sku        String?
+  qty        Int
+  price      Decimal   @db.Decimal
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+  orders     orders?   @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  products   products? @relation(fields: [sku], references: [sku], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model order_statuses {
+  id          Int       @id @default(autoincrement())
+  status_name String    @unique
+  description String?
+  priority    Int?      @default(0)
+  created_at  DateTime? @default(now()) @db.Timestamp(6)
+  orders      orders[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model orders {
+  id             String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id        String?         @db.Uuid
+  total          Decimal         @db.Decimal
+  status_id      Int?
+  created_at     DateTime?       @default(now()) @db.Timestamp(6)
+  updated_at     DateTime?       @default(now()) @db.Timestamp(6)
+  order_items    order_items[]
+  payments       Payment[]
+  order_statuses order_statuses? @relation(fields: [status_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users          users?          @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model products {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sku         String        @unique
+  name        String
+  price       Decimal       @db.Decimal
+  created_at  DateTime?     @default(now()) @db.Timestamp(6)
+  updated_at  DateTime?     @default(now()) @db.Timestamp(6)
+  cart_items  cart_items[]
+  inventory   inventory?
+  order_items order_items[]
+}
+
+model roles {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  role_name  String    @unique
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+  users      users[]
+}
+
+model users {
+  id         String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  role_id    String?      @db.Uuid
+  username   String       @unique
+  email      String       @unique
+  password   String
+  full_name  String?
+  created_at DateTime?    @default(now()) @db.Timestamp(6)
+  updated_at DateTime?    @default(now()) @db.Timestamp(6)
+  cart_items cart_items[]
+  orders     orders[]
+  roles      roles?       @relation(fields: [role_id], references: [id], onUpdate: NoAction)
+}
+
+model Payment {
+  id            String   @id @default(uuid())
+  orderId       String   @db.Uuid  // (ต้องตรงกับ type ของ orders.id)
+  order         orders   @relation(fields: [orderId], references: [id]) 
+  amount        Decimal  @db.Decimal(10, 2)
+  currency      String   @default("THB")
+  status        String   // PENDING, SUCCEEDED, FAILED
+  provider      String   // STRIPE, CREDIT_CARD, MOCK
+  transactionId String?  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("payments")
+}
