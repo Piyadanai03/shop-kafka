@@ -5,15 +5,32 @@ import { producePaymentSucceeded } from "../kafka/producer.js";
 const prisma = new PrismaClient();
 
 export const createPayment = async (req: Request, res: Response) => {
-  // รับข้อมูลจาก Frontend (ปกติเขาจะส่ง orderId กับ token บัตรเครดิตมา)
   const { orderId, amount } = req.body;
+  const userId = req.user?.id;
 
   if (!orderId || !amount) {
     return res.status(400).json({ error: "Order ID and Amount are required" });
   }
 
+  if (!userId) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
   try {
-    // 1. บันทึกสถานะ "กำลังจ่ายเงิน" (PENDING)
+    // ตรวจสอบความเป็นเจ้าของ
+    const order = await prisma.orders.findFirst({
+      where: {
+        id: orderId,
+        user_id: userId, 
+      },
+    });
+
+    if (!order) {
+      // ถ้าหาไม่เจอ แปลว่า Order ไม่มีจริง
+      return res.status(404).json({ error: "Order not found or access denied" });
+    }
+
+    // เริ่มกระบวนการจ่ายเงิน: สร้าง Record "PENDING"
     const payment = await prisma.payment.create({
       data: {
         orderId,
@@ -23,19 +40,14 @@ export const createPayment = async (req: Request, res: Response) => {
       },
     });
 
-    // -----------------------------------------------
-    // 2. จำลองการคุยกับธนาคาร (Mock Payment Gateway)
-    // ในความเป็นจริง ตรงนี้จะเรียก Stripe/Omise API
-    // -----------------------------------------------
-
-    // (แกล้งหน่วงเวลา 1 วินาที)
+    // (แกล้งหน่วงเวลา 1 วินาที ให้เหมือนคุยกับ API จริง)
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    // (จำลอง) สุ่มผลลัพธ์: 90% สำเร็จ, 10% ล้มเหลว
+    // (สุ่มผลลัพธ์: 90% สำเร็จ)
     const isSuccess = Math.random() > 0.1;
 
     if (isSuccess) {
-      // 3a. กรณีสำเร็จ (Success)
+      // อัปเดตสถานะใน DB
       const updatedPayment = await prisma.payment.update({
         where: { id: payment.id },
         data: {
@@ -44,7 +56,7 @@ export const createPayment = async (req: Request, res: Response) => {
         },
       });
 
-      // ⭐️ 4. ส่ง Event บอกโลก!
+      // ส่ง Kafka Event
       await producePaymentSucceeded({
         paymentId: updatedPayment.id,
         orderId: updatedPayment.orderId,
@@ -56,21 +68,22 @@ export const createPayment = async (req: Request, res: Response) => {
         message: "Payment successful",
         payment: updatedPayment,
       });
+
     } else {
-      // 3b. กรณีล้มเหลว (Failed)
+      // อัปเดตสถานะเป็น FAILED
       const failedPayment = await prisma.payment.update({
         where: { id: payment.id },
         data: { status: "FAILED" },
       });
 
-      // (ควรส่ง Event payment.failed ด้วย แต่ในที่นี้ละไว้ก่อน)
       return res.status(400).json({
         error: "Payment declined by bank",
         payment: failedPayment,
       });
     }
+
   } catch (error) {
-    console.error(error);
+    console.error("Payment Error:", error);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 };

@@ -50,14 +50,14 @@ export async function connectAndStartConsumer() {
       try {
         const decodedPayload = await registry.decode(message.value);
         
-        // 1. ⭐️ ถ้า Order สำเร็จ -> ล้างตะกร้าของ User นั้น
+        // ถ้า Order สำเร็จ -> ล้างตะกร้าของ User นั้น
         if (topic === 'order.created') {
           const { userId } = decodedPayload as OrderCreatedPayload;
           await db.delete(cartItemsTable).where(eq(cartItemsTable.userId, userId));
           console.log(`[order.created] Cart cleared for User: ${userId}`);
         }
 
-        // 2. ⭐️ ถ้า Product ถูกลบ -> ลบออกจากตะกร้า "ทุกคน"
+        // ถ้า Product ถูกลบ -> ลบออกจากตะกร้า "ทุกคน"
         if (topic === 'product.deleted') {
           const { sku } = decodedPayload as ProductDeletedPayload;
           await db.delete(cartItemsTable).where(eq(cartItemsTable.sku, sku));

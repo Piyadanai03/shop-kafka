@@ -38,7 +38,7 @@ export const addItemToCart = async (req: Request, res: Response) => {
 
   try {
     const newCartItem = await db.transaction(async (tx) => {
-      // เช็คสต็อก (จาก Inventory แทน Product)
+      // เช็คสต็อก
       const [inventory] = await tx
         .select({ available: inventoryTable.available })
         .from(inventoryTable)
@@ -49,7 +49,7 @@ export const addItemToCart = async (req: Request, res: Response) => {
         throw new Error("Product inventory not found"); 
       }
 
-      // หาของในตะกร้า (เหมือนเดิม)
+      // หาของในตะกร้า
       const existingItem = await tx.query.cartItemsTable.findFirst({
         where: and(
           eq(cartItemsTable.userId, userId),
@@ -63,7 +63,6 @@ export const addItemToCart = async (req: Request, res: Response) => {
       }
 
       // เช็คสต็อก available
-      //เปลี่ยนเป็น inventory.available
       if (inventory.available < newQty) {
         throw new Error("Insufficient stock");
       }

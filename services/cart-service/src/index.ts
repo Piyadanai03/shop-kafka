@@ -17,11 +17,9 @@ app.use('/', cartRouter);
 // Start Server
 async function startServer() {
   try {
-    // 1. เชื่อมต่อ Kafka Consumer ก่อน
     await connectAndStartConsumer();
     console.log('Kafka Consumer connected and subscribed.');
 
-    // 2. ค่อยเริ่ม Server
     app.listen(PORT, () => {
       console.log(`Cart Service is running on http://localhost:${PORT}`);
     });
